@@ -1,4 +1,4 @@
-// This is the final and best code for: api/getCareerAdvice.js
+// api/getCareerAdvice.js
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -14,26 +14,39 @@ export default async function handler(req, res) {
     }
 
     const prompt = createPrompt(userData);
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${geminiApiKey}`;
+
+    // ✅ Use correct endpoint + model
+    const model = "gemini-2.0-flash"; 
+    // If this still 404s, try: "gemini-1.5-pro" or "gemini-1.5-flash"
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+
+    console.log("Calling Gemini model:", model);
 
     const geminiResponse = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-        }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+      }),
     });
 
     if (!geminiResponse.ok) {
-        console.error(`Gemini API responded with status: ${geminiResponse.status}`);
-        throw new Error('API call failed');
+      const bodyText = await geminiResponse.text();
+      console.error(`Gemini API responded with status: ${geminiResponse.status}`, bodyText);
+      throw new Error('API call failed');
     }
 
     const geminiData = await geminiResponse.json();
-    
-    const responseText = geminiData.candidates[0].content.parts[0].text;
+
+    const responseText =
+      geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+
+    if (!responseText) {
+      console.error("Unexpected Gemini response shape:", JSON.stringify(geminiData));
+      throw new Error("Invalid response format");
+    }
+
     const careers = parseGeminiResponse(responseText);
-    
     res.status(200).json({ careers });
 
   } catch (error) {
@@ -43,30 +56,27 @@ export default async function handler(req, res) {
   }
 }
 
-// Creates the detailed instructions for the AI
+// ----- helpers -----
+
 function createPrompt(userData) {
   return `
-    Analyze this user profile and recommend 3 suitable tech career paths with detailed information:
-    Name: ${userData.name}, Skills: ${userData.skills}, Experience: ${userData.experience}, Interests: ${userData.interests.join(', ')}, Career Goals: ${userData.goals}.
-    For each career, provide: Career title, Match percentage (0-100%), Brief description, Key skills required, Missing skills from user's current skillset, Salary range in INR, Market demand (e.g., High), Growth potential, A current industry trend.
-    Format the response as a valid JSON array of objects only, with these properties: "career", "match", "description", "requiredSkills", "missingSkills", "salary", "demand", "growth", "trend".
-  `;
+Analyze this user profile and recommend 3 suitable tech career paths with detailed information:
+Name: ${userData.name}, Skills: ${userData.skills}, Experience: ${userData.experience}, Interests: ${(userData.interests || []).join(', ')}, Career Goals: ${userData.goals}.
+For each career, provide: Career title, Match percentage (0-100%), Brief description, Key skills required, Missing skills from user's current skillset, Salary range in INR, Market demand (e.g., High), Growth potential, A current industry trend.
+Format the response as a valid JSON array of objects only, with these properties: "career", "match", "description", "requiredSkills", "missingSkills", "salary", "demand", "growth", "trend".
+  `.trim();
 }
 
-// Cleans up the AI's response.
 function parseGeminiResponse(text) {
   try {
     const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
     throw new Error('No JSON array found in response');
-  } catch (error) {
-    throw error;
+  } catch (err) {
+    throw err;
   }
 }
 
-// Provides a full, sample response if the live API call fails.
 function getFallbackResponse() {
   console.log("Providing fallback response due to an error.");
   return [
@@ -91,6 +101,17 @@ function getFallbackResponse() {
       demand: "Very High",
       growth: "31% by 2029",
       trend: "Rising need for AI and machine learning expertise"
+    },
+    {
+      career: "UX/UI Designer (Sample)",
+      match: 65,
+      description: "Create user-friendly interfaces that provide meaningful experiences to users.",
+      requiredSkills: ["Figma", "User Research", "Wireframing", "Prototyping"],
+      missingSkills: ["Figma", "User Research"],
+      salary: "₹5-12 LPA",
+      demand: "High",
+      growth: "13% by 2029",
+      trend: "Growing emphasis on user experience in digital products"
     }
   ];
 }
