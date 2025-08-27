@@ -16,7 +16,9 @@ const state = {
     results: null,
     acceptedTerms: false,
     topCareers: [],
-    errors: {}
+    errors: {},
+    // NEW: track where results came from
+    apiSource: null // "gemini" | "fallback" | null
 };
 
 // DOM Elements
@@ -586,9 +588,21 @@ function renderGoalsStep() {
 
 // Step 4: Results
 function renderResultsStep() {
+    // Guard if nothing loaded
+    const haveCareers = Array.isArray(state.topCareers) && state.topCareers.length > 0;
+    const firstCareer = haveCareers ? state.topCareers[0] : null;
+    const missingSkillsList = firstCareer?.missingSkills || [];
+
+    // Small source badge text + style — tiny, unobtrusive, no layout changes
+    const sourceBadge = state.apiSource === 'gemini'
+        ? `<span class="ml-3 inline-flex items-center text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-200" title="Results are live from Gemini API">Live from Gemini</span>`
+        : state.apiSource === 'fallback'
+            ? `<span class="ml-3 inline-flex items-center text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200" title="Fallback expert analysis used because API was unavailable">Fallback: Expert analysis</span>`
+            : '';
+
     app.innerHTML = `
         <div class="p-8">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6">Your Personalized Career Plan</h2>
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">Your Personalized Career Plan ${sourceBadge}</h2>
             
             <div class="mb-6">
                 <div class="flex mb-2">
@@ -610,6 +624,7 @@ function renderResultsStep() {
                 </div>
             </div>
             
+            ${haveCareers ? `
             <div class="grid md:grid-cols-3 gap-6 mb-8">
                 ${state.topCareers.map((career, index) => `
                     <div class="career-path-card bg-white p-5 rounded-lg shadow-md">
@@ -646,7 +661,7 @@ function renderResultsStep() {
             
             <div class="bg-gray-50 p-6 rounded-lg mb-8">
                 <h3 class="font-bold text-lg mb-4">Your Skill Gap Analysis</h3>
-                ${state.topCareers[0].missingSkills.map((skill, i) => `
+                ${missingSkillsList.map((skill, i) => `
                     <div class="mb-4 animate-skill" style="animation-delay: ${i * 0.1}s">
                         <div class="flex justify-between mb-1">
                             <span class="font-medium">${skill}</span>
@@ -655,12 +670,12 @@ function renderResultsStep() {
                         <div class="w-full bg-gray-200 rounded-full h-2.5">
                             <div class="bg-blue-600 h-2.5 rounded-full skill-bar" style="width: 0%"></div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">Critical skill for ${state.topCareers[0].career}. Consider learning through online courses.</p>
+                        <p class="text-xs text-gray-500 mt-1">Critical skill for ${firstCareer?.career || 'this path'}. Consider learning through online courses.</p>
                     </div>
                 `).join('')}
                 <div class="mt-6 p-4 bg-blue-50 rounded-lg">
                     <h4 class="font-semibold text-blue-800 mb-2">Skill Improvement Strategy</h4>
-                    <p class="text-sm text-blue-700">Based on your current skills, we recommend focusing on ${state.topCareers[0].missingSkills.slice(0, 2).join(' and ')} first, as these are fundamental to your chosen career path.</p>
+                    <p class="text-sm text-blue-700">Based on your current skills, we recommend focusing on ${missingSkillsList.slice(0, 2).join(' and ') || 'foundational skills'} first, as these are fundamental to your chosen career path.</p>
                 </div>
             </div>
             
@@ -671,14 +686,14 @@ function renderResultsStep() {
                         <div class="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-1 rounded mr-3">Weeks 1-4</div>
                         <div>
                             <div class="font-semibold">Foundational Skills</div>
-                            <div class="text-sm text-gray-600">Focus on ${state.topCareers[0].missingSkills.slice(0, 2).join(' and ')}</div>
+                            <div class="text-sm text-gray-600">Focus on ${missingSkillsList.slice(0, 2).join(' and ') || 'core fundamentals'}</div>
                         </div>
                     </div>
                     <div class="flex items-start">
                         <div class="bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded mr-3">Weeks 5-8</div>
                         <div>
                             <div class="font-semibold">Intermediate Concepts</div>
-                            <div class="text-sm text-gray-600">Build projects using ${state.topCareers[0].missingSkills.slice(2, 4).join(' and ')}</div>
+                            <div class="text-sm text-gray-600">Build projects using ${missingSkillsList.slice(2, 4).join(' and ') || 'practical exercises'}</div>
                         </div>
                     </div>
                     <div class="flex items-start">
@@ -690,6 +705,10 @@ function renderResultsStep() {
                     </div>
                 </div>
             </div>
+            ` : `
+            <div class="p-6 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800">
+                No results found. Please go back and try again.
+            </div>`}
             
             <div class="flex gap-4 flex-wrap">
                 <button onclick="generatePDF()" class="download-btn px-6 py-3 text-white rounded-lg flex items-center">
@@ -949,7 +968,7 @@ async function callGeminiAPI(userData) {
             throw new Error(`Server error: ${response.status}`);
         }
 
-        const data = await response.json();
+        const data = await response.json(); // { careers: [...] }
         return data;
     } catch (error) {
         console.error('Error calling API:', error);
@@ -972,23 +991,34 @@ async function generateResults() {
     
     try {
         // Call Gemini API
-        const geminiResults = await callGeminiAPI(state.userData);
-        
+        const apiPayload = await callGeminiAPI(state.userData);
+        const careers = apiPayload?.careers;
+
+        if (!Array.isArray(careers)) {
+            // Force fallback if the shape isn't what we expect
+            throw new Error('Invalid API response shape: "careers" not found');
+        }
+
         // Combine Gemini results with our career trends data
-        const combinedResults = geminiResults.map(result => {
+        const combinedResults = careers.map(result => {
             const careerData = careerTrends[result.career] || {};
             return {
                 ...careerData,
                 ...result,
                 // Ensure we have all required fields
-                salary: careerData.salary || "₹5-12 LPA",
-                demand: careerData.demand || "High",
-                growth: careerData.growth || "15% by 2029",
-                description: careerData.description || "A promising career path with good growth potential."
+                salary: careerData.salary || result.salary || "₹5-12 LPA",
+                demand: careerData.demand || result.demand || "High",
+                growth: careerData.growth || result.growth || "15% by 2029",
+                description: careerData.description || result.description || "A promising career path with good growth potential.",
+                missingSkills: result.missingSkills || careerData.skills?.filter(s => {
+                    const userSkills = state.userData.skills.toLowerCase();
+                    return !userSkills.includes(String(s).toLowerCase());
+                }) || []
             };
         });
-        
+
         state.topCareers = combinedResults;
+        state.apiSource = 'gemini'; // NEW
         state.currentStep = 4;
         render();
     } catch (error) {
@@ -997,7 +1027,6 @@ async function generateResults() {
         // Fallback to static analysis if API fails
         alert("API is not responding. Using our expert analysis instead.");
         
-        // Use the existing static analysis as fallback
         const userSkills = state.userData.skills.split(',').map(skill => skill.trim().toLowerCase());
         
         // Calculate match scores for each career
@@ -1024,6 +1053,7 @@ async function generateResults() {
         
         // Get top 3 careers
         state.topCareers = careerMatches.slice(0, 3);
+        state.apiSource = 'fallback'; // NEW
         state.currentStep = 4;
         render();
     }
@@ -1044,7 +1074,8 @@ function saveToServer() {
         ...state.userData,
         results: state.results,
         timestamp: timestamp,
-        topCareers: state.topCareers
+        topCareers: state.topCareers,
+        apiSource: state.apiSource // NEW
     };
     
     // Get existing data or initialize empty array
@@ -1073,6 +1104,7 @@ function restartProcess() {
     state.results = null;
     state.topCareers = [];
     state.errors = {};
+    state.apiSource = null; // NEW
     render();
 }
 
