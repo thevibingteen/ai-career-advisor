@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     }
 
     const prompt = createPrompt(userData);
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiApiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${geminiApiKey}`;
 
     const geminiResponse = await fetch(apiUrl, {
         method: 'POST',
