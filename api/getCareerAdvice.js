@@ -78,11 +78,15 @@ Format the response as a valid JSON array of objects only, with these properties
 
 function parseGeminiResponse(text) {
   try {
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    // 🟢 Strip Markdown fences like ```json ... ```
+    const cleaned = text.replace(/```json|```/g, "").trim();
+
+    const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
     if (jsonMatch) return JSON.parse(jsonMatch[0]);
+
     throw new Error("No JSON array found in response");
   } catch (err) {
-    throw err;
+    throw err; // let main handler fallback
   }
 }
 
