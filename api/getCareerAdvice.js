@@ -1,4 +1,4 @@
-// This is the final and best code for: api/getCareerAdvice.js
+// api/getCareerAdvice.js  (replace your file with this)
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -10,46 +10,65 @@ export default async function handler(req, res) {
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
     if (!userData || !geminiApiKey) {
-      throw new Error('Missing user data or API key configuration.');
+      throw new Error('Missing user data or GEMINI_API_KEY environment variable.');
     }
 
     const prompt = createPrompt(userData);
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${geminiApiKey}`;
+
+    // --- Use a known-valid model name; change if you have access to another one ---
+    const model = 'gemini-2.5-flash'; // alternatives to try: 'gemini-1.5-pro', 'gemini-2.5-pro'
+    // Use the v1beta generateContent endpoint (commonly used) — switch if your account requires v1.
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+
+    console.log('Calling Gemini API URL:', apiUrl);
+    console.log('Prompt length:', prompt.length);
 
     const geminiResponse = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-        }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+      }),
     });
 
+    // If not ok, log the full body so you can see the exact error message (helps debug 404/401/etc.)
     if (!geminiResponse.ok) {
-        // If the API itself returns an error, we'll use the fallback
-        console.error(`Gemini API responded with status: ${geminiResponse.status}`);
-        throw new Error('API call failed');
+      const bodyText = await geminiResponse.text();
+      console.error('Gemini API returned non-OK status:', geminiResponse.status, bodyText);
+      // Return an error for debugging (you can change to fallback-only later)
+      return res.status(502).json({ error: 'Gemini API error', status: geminiResponse.status, body: bodyText });
     }
 
     const geminiData = await geminiResponse.json();
-    
-    const responseText = geminiData.candidates[0].content.parts[0].text;
+
+    // Defensive extraction to avoid undefined errors
+    const responseText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    if (!responseText) {
+      console.error('Unexpected Gemini response shape:', JSON.stringify(geminiData));
+      return res.status(502).json({ error: 'Unexpected Gemini response shape', body: geminiData });
+    }
+
     const careers = parseGeminiResponse(responseText);
-    
     res.status(200).json({ careers });
 
   } catch (error) {
-    // If ANY error happens (API call, parsing, etc.), we send the fallback response
     console.error('Error in serverless function:', error);
     const fallbackCareers = getFallbackResponse();
     res.status(200).json({ careers: fallbackCareers });
   }
 }
 
-// Creates the detailed instructions for the AI
+// Creates prompt safely (defensive for missing fields)
 function createPrompt(userData) {
+  const name = userData.name ?? 'Unknown';
+  const skills = Array.isArray(userData.skills) ? userData.skills.join(', ') : (userData.skills ?? '');
+  const experience = userData.experience ?? '';
+  const interests = Array.isArray(userData.interests) ? userData.interests.join(', ') : (userData.interests ?? '');
+  const goals = userData.goals ?? '';
+
   return `
     Analyze this user profile and recommend 3 suitable tech career paths with detailed information:
-    Name: ${userData.name}, Skills: ${userData.skills}, Experience: ${userData.experience}, Interests: ${userData.interests.join(', ')}, Career Goals: ${userData.goals}.
+    Name: ${name}, Skills: ${skills}, Experience: ${experience}, Interests: ${interests}, Career Goals: ${goals}.
     For each career, provide: Career title, Match percentage (0-100%), Brief description, Key skills required, Missing skills from user's current skillset, Salary range in INR, Market demand (e.g., High), Growth potential, A current industry trend.
     Format the response as a valid JSON array of objects only, with these properties: "career", "match", "description", "requiredSkills", "missingSkills", "salary", "demand", "growth", "trend".
   `;
@@ -62,16 +81,13 @@ function parseGeminiResponse(text) {
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
-    // If no valid JSON is found, throw an error to trigger the fallback in the catch block
     throw new Error('No JSON array found in response');
   } catch (error) {
-    // Re-throw the error to be caught by the main handler's catch block
     throw error;
   }
 }
 
-// **IMPROVED FALLBACK FUNCTION**
-// This provides a full, sample response if the live API call fails for any reason.
+// Fallback (unchanged)
 function getFallbackResponse() {
   console.log("Providing fallback response due to an error.");
   return [
