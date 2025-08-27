@@ -16,9 +16,7 @@ const state = {
     results: null,
     acceptedTerms: false,
     topCareers: [],
-    errors: {},
-    // NEW: track where results came from
-    resultsSource: null // 'gemini' | 'fallback' | null
+    errors: {}
 };
 
 // DOM Elements
@@ -590,17 +588,7 @@ function renderGoalsStep() {
 function renderResultsStep() {
     app.innerHTML = `
         <div class="p-8">
-            <h2 class="text-2xl font-bold text-gray-800 mb-2">Your Personalized Career Plan</h2>
-
-            <!-- NEW: source badge so user knows Gemini vs Fallback -->
-            <div class="mb-4">
-                ${state.resultsSource ? `
-                    <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${state.resultsSource === 'gemini' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
-                        <i class="fas ${state.resultsSource === 'gemini' ? 'fa-bolt' : 'fa-shield-alt'}"></i>
-                        ${state.resultsSource === 'gemini' ? 'Live: Gemini' : 'Fallback: Local Analysis'}
-                    </span>
-                ` : ''}
-            </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Your Personalized Career Plan</h2>
             
             <div class="mb-6">
                 <div class="flex mb-2">
@@ -669,7 +657,7 @@ function renderResultsStep() {
                         </div>
                         <p class="text-xs text-gray-500 mt-1">Critical skill for ${state.topCareers[0].career}. Consider learning through online courses.</p>
                     </div>
-                ').join('')}
+                `).join('')}
                 <div class="mt-6 p-4 bg-blue-50 rounded-lg">
                     <h4 class="font-semibold text-blue-800 mb-2">Skill Improvement Strategy</h4>
                     <p class="text-sm text-blue-700">Based on your current skills, we recommend focusing on ${state.topCareers[0].missingSkills.slice(0, 2).join(' and ')} first, as these are fundamental to your chosen career path.</p>
@@ -815,7 +803,7 @@ function showCareerDetails(careerName) {
                                 <span class="resource-badge ${resource.free ? 'free' : 'paid'}">${resource.free ? 'Free' : 'Paid'}</span>
                             </div>
                         </a>
-                    ').join('')}
+                    `).join('')}
                 </div>
             </div>
             
@@ -826,7 +814,7 @@ function showCareerDetails(careerName) {
                 <div class="flex flex-wrap gap-2">
                     ${career.freelancingPlatforms.map(platform => `
                         <span class="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded">${platform}</span>
-                    ').join('')}
+                    `).join('')}
                 </div>
             </div>
             ` : ''}
@@ -841,7 +829,7 @@ function showCareerDetails(careerName) {
                 <div class="flex flex-wrap gap-2">
                     ${career.companies.map(company => `
                         <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-1 rounded">${company}</span>
-                    ').join('')}
+                    `).join('')}
                 </div>
             </div>
         </div>
@@ -983,14 +971,8 @@ async function generateResults() {
     `;
     
     try {
-        // reset source flag while loading
-        state.resultsSource = null;
-
         // Call Gemini API
         const geminiResults = await callGeminiAPI(state.userData);
-
-        // mark as live (if the request succeeded and parsed)
-        state.resultsSource = 'gemini';
         
         // Combine Gemini results with our career trends data
         const combinedResults = geminiResults.map(result => {
@@ -1014,9 +996,6 @@ async function generateResults() {
         
         // Fallback to static analysis if API fails
         alert("API is not responding. Using our expert analysis instead.");
-
-        // mark as fallback
-        state.resultsSource = 'fallback';
         
         // Use the existing static analysis as fallback
         const userSkills = state.userData.skills.split(',').map(skill => skill.trim().toLowerCase());
@@ -1094,7 +1073,6 @@ function restartProcess() {
     state.results = null;
     state.topCareers = [];
     state.errors = {};
-    state.resultsSource = null; // reset the source badge
     render();
 }
 
